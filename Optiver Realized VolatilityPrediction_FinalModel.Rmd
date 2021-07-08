@@ -1,0 +1,508 @@
+---
+title: "Optiver Realized Volatility Prediction"
+author: "Priyanka Puppala"
+date: "6/29/2021"
+output: pdf_document
+---
+# Optiver Realized Volatility Prediction
+```{r warning=FALSE, message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(tidyr)
+
+train_data <- read.csv("train.csv")
+test_data <- read.csv("test.csv")
+
+```
+```{r warning=FALSE, message=FALSE}
+#exploring training_data  
+str(train_data)
+summary(train_data)
+head(train_data)
+sum(is.na(train_data))
+
+#exploring test _data   
+str(test_data)
+summary(test_data)
+head(test_data)
+sum(is.na(test_data))
+```
+```{r warning=FALSE, message=FALSE}
+#reading book_train & test parquet
+library(arrow)
+Book_train_file <- list.files("book_train.parquet/stock_id=0/")
+
+Book_train <- read_parquet(str_c("book_train.parquet/stock_id=0/",
+                                 Book_train_file))
+
+
+Book_test_file <- list.files("book_train.parquet/stock_id=0/")
+Book_test <- read_parquet(str_c("book_train.parquet/stock_id=0/",
+                                Book_test_file))
+
+
+```
+```{r warning=FALSE, message=FALSE}
+#reading trade_train & test parquet
+
+trade_train_file <- list.files("book_train.parquet/stock_id=0/")
+
+trade_train <- read_parquet(str_c("book_train.parquet/stock_id=0/",
+                                  trade_train_file ))
+  
+  
+trade_test_file <- list.files("book_test.parquet/stock_id=0/")
+trade_test <- read_parquet(str_c("book_test.parquet/stock_id=0/",
+                                 trade_test_file))
+
+```
+```{r warning=FALSE, message=FALSE}
+#Exploring Book_train data 
+
+str(Book_train)
+summary(Book_train)
+sum(is.na(Book_train))
+head(Book_train)
+
+```
+```{r warning=FALSE, message=FALSE}
+#Exploring trade_train data 
+str(trade_train)
+summary(trade_train)
+sum(is.na(trade_train))
+head(trade_train)
+
+
+```
+```{r warning=FALSE, message=FALSE}
+#Exploratory Data Analysis
+train_data %>%
+  ggplot(mapping = aes(time_id, target)) +
+  geom_point() + labs(x ="time_id" , y= " target")
+
+
+train_data %>%
+  ggplot(mapping = aes(stock_id, target)) +
+  geom_point() +
+  labs(x ="time_id" , y= " target")
+
+
+```
+```{r warning=FALSE, message=FALSE}
+ 
+hist(train_data$target)
+hist(train_data$target, freq = FALSE, main="Histogram with target",
+      xlab="target",
+      border="darkgreen",
+      col="skyblue")
+lines(density(train_data$target), lwd = 4, col = "red")
+```
+```{r warning=FALSE, message=FALSE}
+library(corrplot)
+
+train_cor  <-cor(train_data)
+head(round(train_cor,2))
+
+corrplot(train_cor, method="pie")
+
+```
+# Splitting data 
+```{r warning=FALSE, message=FALSE}
+
+# Splitting the dataset into the Training set and Test set
+
+library(caTools)
+set.seed(123)
+split <-  sample.split(train_data$target, SplitRatio = .7)
+train  <- subset(train_data, split == TRUE)
+test <-  subset(train_data, split == FALSE)
+
+```
+# Model Building 
+```{r warning=FALSE, message=FALSE}
+#Decision Tree
+#libraries that we will need
+set.seed(1974) #fix the random generator seed 
+library(caret)
+library(rpart)
+
+DT_model <- rpart(target ~ .,
+            data = train, 
+            method = "anova",         #indicates the outcome is continuous
+            control = rpart.control(
+               xval = 10,
+              minsplit = 1,  # min number of observ for a split 
+              minbucket = 1, # min nr of obs in terminal nodes
+              cp=0)          #decrease in complex for a split 
+)
+DT_model
+```
+```{r warning=FALSE, message=FALSE}
+
+
+plot(DT_model)
+```
+```{r warning=FALSE, message=FALSE}
+DT_model$variable.importance
+
+DT_model$splits
+```
+```{r warning=FALSE, message=FALSE}
+library(rpart.plot)
+rpart.plot(DT_model )
+
+```
+
+```{r warning=FALSE, message=FALSE}
+
+plotcp(DT_model)
+```
+```{r warning=FALSE, message=FALSE}
+
+prune_DT_model <- prune(DT_model, cp=0.02)   #prune the tree with cp=0.02
+prune_DT_model
+printcp(prune_DT_model)
+```
+
+```{r warning=FALSE, message=FALSE}
+pred_tree <- predict(prune_DT_model,                      
+                     newdata = test )
+
+```
+```{r warning=FALSE, message=FALSE}
+#Root Mean Square Percentage Error
+library(MLmetrics)
+
+RMSPE(test$target, pred_tree)
+
+```
+```{r warning=FALSE, message=FALSE}
+
+test_data_pred <- predict(prune_DT_model,                      
+                     newdata = test_data )
+
+```
+
+```{r warning=FALSE, message=FALSE}
+
+  
+sample_submission <- cbind(test_data$row_id ,round(test_data_pred,9))  
+sample_submission
+
+
+
+
+```
+
+```{r warning=FALSE, message=FALSE}
+
+# Fitting Random Forest Regression to the dataset
+# install.packages('randomForest')
+library(randomForest)
+set.seed(1234)
+rf_model <- randomForest(x = train[-3],
+                         y = train$target,
+                         ntree = 100)
+
+#rf_model
+summary(rf_model)
+model_value <- data.frame(rf_model$y)
+
+```
+```{r warning=FALSE, message=FALSE}
+
+plot(rf_model)
+
+```
+```{r warning=FALSE, message=FALSE}
+
+# Predicting a new result with Random Forest Regression
+rf_pred <- predict(rf_model, newdata=test_data)
+
+
+  
+```
+```{r warning=FALSE, message=FALSE}
+
+  
+sample_submission1 <- cbind(test_data$row_id ,round(rf_pred,9)  ) 
+sample_submission1
+
+```
+```{r warning=FALSE, message=FALSE}
+
+#Root Mean Square Percentage Error
+
+RMSPE(test$target, rf_pred)
+ 
+```
+
+```{r warning=FALSE, message=FALSE}
+
+# Now creating new CSV file
+write.csv(sample_submission, file = "sample_submission.csv",
+           row.names = FALSE)
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+```
+```{r warning=FALSE, message=FALSE}
+ 
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+```
+```{r warning=FALSE, message=FALSE}
+ 
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+```
+```{r warning=FALSE, message=FALSE}
+ 
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+```
+```{r warning=FALSE, message=FALSE}
+ 
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+```
+```{r warning=FALSE, message=FALSE}
+ 
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+```
+```{r warning=FALSE, message=FALSE}
+ 
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+```
+```{r warning=FALSE, message=FALSE}
+ 
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+```
+```{r warning=FALSE, message=FALSE}
+ 
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+```
+```{r warning=FALSE, message=FALSE}
+ 
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+```
+```{r warning=FALSE, message=FALSE}
+ 
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+
+```
+```{r warning=FALSE, message=FALSE}
+
+
+```
